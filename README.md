@@ -18,6 +18,12 @@ the solver to include further functionalities. Output includes the full spatio-t
 temperature field inside the sphere and its surrounding medium.
 
 
+## Project status
+
+This repository is under active development.
+Releases are published periodically and archived in Zenodo.
+
+
 ## Citation
 
 This software has been developed to support ongoing research on heat 
