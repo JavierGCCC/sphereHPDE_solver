@@ -19,10 +19,10 @@ temperature field inside the sphere and its surrounding medium.
 
 
 ## Project status
+An initial preliminary version of the software (v0.1.0-alpha) was archived on Zenodo on 2025-09-30 and is accessible via the following DOI: https://doi.org/10.5281/zenodo.17236155.  
 
-This repository is under active development.
-Releases are published periodically and archived in Zenodo.
-
+That archived record corresponds to an early development snapshot.  
+The present repository supersedes that version and constitutes the actively maintained codebase from this point onward
 
 ## Citation
 
