@@ -1,4 +1,4 @@
-function [t, nodes, T, info_solver]=heatEqCNFD_solver(dom,mat,src,mesh,bc)
+function [t, nodes, T, Qfunc, info_solver, info_cond]=heatEqCNFD_solver(dom,mat,src,mesh,bc,cond)
 %% READING
 %% ==SIMULATION DOMAIN==
 a=dom.a;
@@ -6,13 +6,18 @@ R_sim=dom.R_sim;
 t_max=dom.t_max;
 
 %% ==MATERIAL THERMOPHYSICAL PROPERTIES==
+n_core=mat.n_core;
+n_medium=mat.n_medium;
 rho=mat.rho;
 cp=mat.cp;
 k=mat.k;
+ITC=mat.ITC;
+tau1=mat.tau1;
 
 %% ==SOURCE CHARACTERISTICS==
-sigma=src.sigma;
+lda0=src.lda0;
 F=src.F;
+tau2=src.tau2;
 
 %% ==MESH CONSTRUCTION==
 N=[mesh.N_p, mesh.N_e, mesh.N_t];
@@ -21,12 +26,24 @@ N=[mesh.N_p, mesh.N_e, mesh.N_t];
 bound=bc.bound;
 T_ini=bc.T_ini;
 
+%% ==MATRIX PRECONDITIONING==
+target_cond=cond.target_cond;
+iter_max=cond.iter_max;
+time_max=cond.time_max;
+
 %% ==SOLVER==
 
-[Qfunc] = illumination(sigma, F);
+sigma=mie_absorption(a, n_core, n_medium, lda0);
+
+[Qfunc] = illumination(sigma, F, tau1, tau2);
 
 [F_d,F_a,Q, nodes, t]=kernelAssembler(a, R_sim, t_max, N, rho, cp,...
-    k, Qfunc, T_ini,bound);
+    k, Qfunc, T_ini,bound, ITC);
 
-[T, info_solver]=CN_linearSolver(F_d, F_a, Q, T_ini);
+[L,U]=ilu(F_d);
+
+[M,info_cond]=preconditioner(U,target_cond,iter_max,time_max);
+
+[T, info_solver]=CN_linearSolver(F_d, F_a, Q, T_ini, M,L,U);
+
 end
