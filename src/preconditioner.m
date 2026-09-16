@@ -1,13 +1,13 @@
 function [M,info]=preconditioner(U,target_cond,iter_max,time_max)
-% Validación mínima de U
+% Validation of U.
 if nargin < 1
     error('Matrix U is required.');
 end
 
-% Chequear triangularidad
+% Check if U is triangular.
 is_upper_tri = istriu(U);
 
-% En caso de que no se pase target_cond etc., se pasa al modo diagonal
+% Switch to diagonal mode in case target_cond is missing.
 use_diag = (~is_upper_tri || nargin < 4);
 
 singularity = condest(U);

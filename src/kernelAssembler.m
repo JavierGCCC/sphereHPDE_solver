@@ -1,17 +1,8 @@
 
-function [F_d,F_a,Q, nodes, t]=kernelAssembler(a, L, t_max, N, rho, cp, k, Qfunc, Tamb, boundary, ITC)
-%rho=[rho_p, rho_e];
-%cp=[cp_p, cp_e];
-%k=[k_p, k_e];
-%G=[G];
-%Tamb=Tamb;
-%a=a;
-%L=L;
-%t_max=t_max;
-%N=[N_p,N_e,N_t];
-%Q_func=Q_func;
-Tinf=Tamb;
-%ANADIREMOS UNA FUNCION EXTERNA DE COMPROBACION DE PARÁMETROS. 
+function [F_d,F_a,Q, nodes, t]=kernelAssembler(a, L, t_max, N, rho, cp, k, Qfunc, Tinf, boundary, ITC)
+
+
+
 switch nargin
     case 11
         if isinf(ITC)
@@ -122,11 +113,11 @@ switch boundary
     case 'Neumann'
         F2_d(N)=1+2*k1_e; F1_d(N-1)=-2*k1_e;
         F2_a(N)=1-2*k1_e; F1_a(N-1)=2*k1_e;
-        Q(N,:)=zeros(1,N_t-1); %Dirichlet condition.
+        Q(N,:)=zeros(1,N_t-1); %Neumann condition.
     case 'Robin'
         F2_d(N)=1+2*k1_e+b*(k1_e+k2_e_aux); F1_d(N-1)=-2*k1_e;
         F2_a(N)=1-2*k1_e-b*(k1_e+k2_e_aux); F1_a(N-1)=2*k1_e;
-        Q(N,:)=2*b*(k1_e+k2_e_aux)*Tinf*ones(1,N_t-1); %Dirichlet condition.
+        Q(N,:)=2*b*(k1_e+k2_e_aux)*Tinf*ones(1,N_t-1); %Robin condition.
 end
  
 %Kernel matrix.

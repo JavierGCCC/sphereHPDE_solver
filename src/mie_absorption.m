@@ -1,11 +1,12 @@
-function sigma_abs = mie_absorption(a, nCore, nMedium, lda0)
+function [ns, sigma_abs] = mie_absorption(a, nCore, nMedium, lda0)
 % MIE_ABSORPTION
 % Computes the absorption cross-section of a spherical particle
 % using Mie theory.
 %
 % INPUTS:
 %   a        - particle radius [m]
-%   nCore    - complex refractive index (numeric) OR string with material name ('Au', 'Ag', etc.)
+%   nCore    - complex refractive index (numeric) OR string with material
+%              name ('Au', 'Ag', etc.). See /mie/permittivity folder.
 %   nMedium  - refractive index of surrounding medium
 %   lda0     - wavelength [m]
 %
@@ -16,7 +17,12 @@ function sigma_abs = mie_absorption(a, nCore, nMedium, lda0)
 %   calcmie.m and its dependencies inside /mie/
 %   optical data files inside /mie/dat_mat/ (format: [λ, Re(ε), Im(ε)])
 %
-% EXAMPLES:
+% OBSERVATIONS:
+%   -Interpolation is applied for input lda0. Check the number of
+%   interpolated elements in the definition of dom_I that suits your
+%   specifics.
+%
+% EXAMPLES OF CALL:
 %   sigma = mie_absorption(20e-9, 0.2+3.5i, 1.33, 532e-9);
 %   sigma = mie_absorption(20e-9, 'Au',    1.33, 532e-9);
 
