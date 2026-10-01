@@ -6,78 +6,88 @@ function [ns, sigma_abs] = mie_absorption(a, nCore, nMedium, lda0)
 % INPUTS:
 %   a        - particle radius [m]
 %   nCore    - complex refractive index (numeric) OR string with material
-%              name ('Au', 'Ag', etc.). See /mie/permittivity folder.
+%              name ('Au', 'Ag', etc.). See /optical/optical_properties/.
 %   nMedium  - refractive index of surrounding medium
 %   lda0     - wavelength [m]
 %
-% OUTPUT:
+% OUTPUTS:
+%   ns        - complex refractive index at lda0
 %   sigma_abs - absorption cross-section [m^2]
 %
 % REQUIREMENTS:
-%   calcmie.m and its dependencies inside /mie/
-%   optical data files inside /mie/dat_mat/ (format: [λ, Re(ε), Im(ε)])
+%   calcmie.m and its dependencies must be available in the MATLAB path.
+%   Run initialize.m before using this function.
+%   Optical data files must be stored inside
+%   /optical/optical_properties/
+%   with format: [lambda, Re(epsilon), Im(epsilon)]
 %
 % OBSERVATIONS:
-%   -Interpolation is applied for input lda0. Check the number of
-%   interpolated elements in the definition of dom_I that suits your
-%   specifics.
+%   - Optical properties are interpolated at the input wavelength lda0.
 %
 % EXAMPLES OF CALL:
-%   sigma = mie_absorption(20e-9, 0.2+3.5i, 1.33, 532e-9);
-%   sigma = mie_absorption(20e-9, 'Au',    1.33, 532e-9);
+%   [ns, sigma] = mie_absorption(20e-9, 0.2+3.5i, 1.33, 532e-9);
+%   [ns, sigma] = mie_absorption(20e-9, 'Au',    1.33, 532e-9);
 
-    % ========== SECTION I: Ensure Mie paths ==========
-    baseDir = fileparts(mfilename('fullpath'));
-    mieDir  = fullfile(baseDir, 'mie');
-    addpath(mieDir);
-    addpath(fullfile(mieDir, 'util'));
-    addpath(fullfile(mieDir, 'expcoeff'));
-    addpath(fullfile(mieDir, 'permittivity'));
-    addpath(fullfile(mieDir, 'bessel'));
 
-    % ========== SECTION II: Interpret nCore ==========
-    if isnumeric(nCore)
-        % Case 1: user gave directly nCore (complex number)
-        ns = nCore;
+% ========== Optical data path ==========
+baseDir = fileparts(mfilename('fullpath'));
+dataDir = fullfile(baseDir, 'optical_properties');
 
-    elseif ischar(nCore) || isstring(nCore)
-        % Case 2: user gave a material name → load optical data
-        nCore = char(nCore);
-        dataFileMat = fullfile(mieDir, 'permittivity', ['data_' nCore '.mat']);
-        dataFileTxt = fullfile(mieDir, 'permittivity', ['data_' nCore '.txt']);
 
-        if exist(dataFileMat, 'file') == 2
-            data = importdata(dataFileMat);
-        elseif exist(dataFileTxt, 'file') == 2
-            data = importdata(dataFileTxt);
-        else
-            error('Optical data for %s not found in mie/dat_mat/', nCore);
-        end
+% ========== SECTION I: Interpret nCore ==========
+if isnumeric(nCore)
 
-        % Expect columns: [λ, Re(ε), Im(ε)]
-        dom_I = linspace(min(data(:,1)), max(data(:,1)), 4000);
-        r_eps = interp1(data(:,1), data(:,2), dom_I, 'spline');
-        i_eps = interp1(data(:,1), data(:,3), dom_I, 'spline');
-        [~, idx_lda0] = min(abs(dom_I - lda0));
-        lambda = dom_I(idx_lda0);
-        epsMat = r_eps(idx_lda0) + 1i*i_eps(idx_lda0);
-        ns     = sqrt(epsMat);
+    % Case 1: user gave directly nCore (complex number)
+    ns = nCore;
 
-        fprintf('[Mie] λ = %.1f nm (interpolated)\n', lambda*1e9);
+elseif ischar(nCore) || isstring(nCore)
+
+    % Case 2: user gave a material name -> load optical data
+    nCore = char(nCore);
+
+    dataFileMat = fullfile(dataDir, ['data_' nCore '.mat']);
+    dataFileTxt = fullfile(dataDir, ['data_' nCore '.txt']);
+
+    if exist(dataFileMat, 'file') == 2
+
+        data = importdata(dataFileMat);
+
+    elseif exist(dataFileTxt, 'file') == 2
+
+        data = importdata(dataFileTxt);
 
     else
-        error('nCore must be complex or string (material name).');
+
+        error(['Optical data for %s not found in ' ...
+            'optical/optical_properties/'], nCore);
+
     end
 
-    % ========== SECTION III: Absorption cross-section ==========
-    nang = 2000; % angular resolution
-    conv = 1;    % convergence factor
+    % Expect columns: [lambda, Re(epsilon), Im(epsilon)]
+    r_eps = interp1(data(:,1), data(:,2), lda0, 'spline');
+    i_eps = interp1(data(:,1), data(:,3), lda0, 'spline');
 
-    [~, C, ~] = calcmie(a, ns, nMedium, lda0, nang, ...
-                        'ConvergenceFactor', conv);
+    epsMat = r_eps + 1i*i_eps;
+    ns     = sqrt(epsMat);
 
-    sigma_abs = C.abs;
+    fprintf('[Mie] lambda = %.1f nm (interpolated)\n', lda0*1e9);
 
-    fprintf('[Mie] σ_abs = %.3e m²\n', sigma_abs);
+else
+
+    error('nCore must be complex or string (material name).');
+
+end
+
+
+% ========== SECTION II: Absorption cross-section ==========
+nang = 2000; % angular resolution
+conv = 1;    % convergence factor
+
+[~, C, ~] = calcmie(a, ns, nMedium, lda0, nang, ...
+    'ConvergenceFactor', conv);
+
+sigma_abs = C.abs;
+
+fprintf('[Mie] sigma_abs = %.3e m^2\n', sigma_abs);
 
 end

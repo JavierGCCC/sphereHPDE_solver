@@ -1,9 +1,13 @@
+% INITIALIZATION
+rootDir = fileparts(fileparts(mfilename('fullpath')));
+addpath(rootDir);
 
+initialize;
 %DEFINITION OF VARIABLES.
 doSave = true;
 
 %Domain
-dom.a            = 15e-9;%NP radius.
+dom.a            = 5e-9;%NP radius.
 dom.R_sim        = 40*dom.a;%Simulation domain radius.
 
 %Materials.
