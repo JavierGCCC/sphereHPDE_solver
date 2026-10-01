@@ -69,7 +69,6 @@ switch choice
                     return;
                 end
 
-                % Vector columna j de la identidad
                 e_j = sparse(j, 1, 1, n, 1);
                 x = U \ e_j;
 

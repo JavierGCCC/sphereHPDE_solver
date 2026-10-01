@@ -29,6 +29,7 @@ function [S, C, ang] = calcmie( r, ns, nm, lambda, nang, varargin )
 %   [1] Bohren, C. F. and Huffman, D. R., Absorption and scattering of 
 %       light by small particles, Wiley-Interscience, New York, 1998.
 %
+%
 %   SYNTAX:
 %
 %   [S, C, ANG] = calcmie( r, ns, nm, lambda, nang )
@@ -76,5 +77,6 @@ end %strtfd
 %% Calculate amplitude scattering matrix
 [S, C, ang] = asmmie(an, bn, nang, k);
 ang = ang/pi*180;
+
 end
 
