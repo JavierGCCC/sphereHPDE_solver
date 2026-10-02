@@ -314,18 +314,7 @@ interpolation onto the requested wavelength grid.
 
 Exact version number to be decided later.
 
-2. Recalculate previous paper results
--------------------------------------
-Use the optimized solver to repeat relevant calculations from the previous
-thermal-confinement paper.
 
-Goals:
-
-- Compare old and new implementations.
-- Check whether previous conclusions remain unchanged.
-- Test sensitivity to conditioning, domain size, boundary conditions and
-  discretization.
-- Use the published calculations as a stress test for the new solver.
 
 3. Parallelization
 ------------------
@@ -367,11 +356,6 @@ Expected generalization:
 Each absorbing layer j will have its own optical absorbed power and thermal
 basis.
 
-Target systems include:
-
-    Fe3O4@Au
-    Fe3O4@SiO2@Au
-    other core-shell / multilayer magnetoplasmonic systems
 
 This will require layer-resolved optical absorption:
 
@@ -380,58 +364,6 @@ This will require layer-resolved optical absorption:
 and independent thermal source bases for the absorbing layers.
 
 
-CURRENT RELEASE ORDER
-=====================
-
-v1.1.0
-------
-- Unified CW/transient solver.
-- Common solution structure.
-- Spectral thermal factorization.
-- One-time matrix decomposition.
-- Efficient transient source handling.
-- CW/transient validation.
-- Debugging/checking tools.
-- Investigate time-dependent BCs; include if clean enough.
-
-v1.2.0
-------
-- Optional inverse-based preconditioner.
-- Target condition-number stopping criterion.
-- Conditioning/timing/sparsity diagnostics.
-- Wavelength-dependent refractive index of the environment.
-- Prepare optical material handling for a later database.
-
-Later v1.x
-----------
-- Small optical-material database.
-- Additional validation/checkers.
-- Recalculation of previous paper simulations.
-- Parallelization of independent parameter sweeps.
-- Further performance/usability improvements.
-
-Future major release
---------------------
-- General multilayer / stratified spherical solver.
-- Layer-resolved optical absorption.
-- Multiple thermal source bases.
-- Foundation for magnetoplasmonic core-shell systems.
 
 
-KEY DESIGN PRINCIPLE
-====================
 
-Keep the user-facing API simple while preserving physically distinct internal
-assemblers.
-
-Central representation:
-
-    T =
-        spectralWeight * opticalBasis
-        + boundaryBasis
-
-Future multilayer generalization:
-
-    T =
-        sum_j(spectralWeight_j * thermalBasis_j)
-        + boundaryBasis
