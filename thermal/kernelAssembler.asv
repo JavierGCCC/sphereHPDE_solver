@@ -1,5 +1,5 @@
 
-function [F_d,F_a,Q_vals, Q_spatial,Q_boundary, nodes, t]=kernelAssembler(a, L, t_max, N, rho, cp, k, Qfunc, Tinf, boundary, ITC)
+function [F_d,F_a,Q_vals, Q_spatial, nodes, t]=kernelAssembler(a, L, t_max, N, rho, cp, k, Qfunc, Tinf, boundary, ITC)
 
 switch nargin
     case 11
@@ -118,11 +118,11 @@ switch boundary
     case 'Neumann'
         F2_d(N)=1+2*k1_e; F1_d(N-1)=-2*k1_e;
         F2_a(N)=1-2*k1_e; F1_a(N-1)=2*k1_e;
-        Q_boundary(end)=0; %Neumann condition.
+        Q(N,:)=zeros(1,N_t-1); %Neumann condition.
     case 'Robin'
         F2_d(N)=1+2*k1_e+b*(k1_e+k2_e_aux); F1_d(N-1)=-2*k1_e;
         F2_a(N)=1-2*k1_e-b*(k1_e+k2_e_aux); F1_a(N-1)=2*k1_e;
-        Q_boundary(end)=2*b*(k1_e+k2_e_aux)*Tinf; %Robin condition.
+        Q(N,:)=2*b*(k1_e+k2_e_aux)*Tinf*ones(1,N_t-1); %Robin condition.
 end
  
 %Kernel matrix.

@@ -1,6 +1,6 @@
-function [Qfunc] = illumination( F, tau1, tau2)
+function [Qfunc] = illumination(sigma, F, tau1, tau2)
 lim = tau2/tau1;   %Reduced timescale. 
-E   = F;     %Absorbed power. 
+E   = F*sigma;     %Absorbed power. 
 b   = 1 / tau1;    %Characteristic factor.
 a   = pi / tau2^2; %Characteristic factor.
 

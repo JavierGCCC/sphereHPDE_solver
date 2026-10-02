@@ -1,0 +1,437 @@
+sphereHPDE_solver — DEVELOPMENT ROADMAP
+===========================================
+
+Date: 2026-10-02
+
+VERSION 1.1.0 — UNIFIED CW / TRANSIENT SOLVER
+=============================================
+
+Main goal
+---------
+Unify the continuous-wave (CW) and transient thermal solvers under a single
+user-facing interface while keeping the internal matrix assemblers separate.
+
+1. Unified solver interface
+---------------------------
+Use a single main solver, e.g.:
+
+    solution = heatEqSolver(dom,mat,src,mesh,bc,solver);
+
+with:
+
+    solver.mode = 'cw';
+
+or:
+
+    solver.mode = 'transient';
+
+The main solver contains a switch/case selecting the corresponding thermal
+formulation.
+
+Keep separate:
+
+    kernelAssemblerCW.m
+    kernelAssembler.m       % transient Crank-Nicolson assembler
+
+Do not create unnecessary solveCW / solveTransient wrapper functions for now.
+
+2. Common spectral formulation
+------------------------------
+Separate wavelength-dependent optics from the thermal problem.
+
+Calculate:
+
+    sigma_abs(lambda)
+
+and reconstruct:
+
+    T(lambda) =
+        sigma_abs(lambda) * opticalBasis
+        + boundaryBasis
+
+For transient:
+
+    T(r,t,lambda) =
+        sigma_abs(lambda) * opticalBasis(r,t)
+        + boundaryBasis(r,t)
+
+For CW:
+
+    T(r,lambda) =
+        sigma_abs(lambda) * opticalBasis(r)
+        + boundaryBasis(r)
+
+This avoids solving the thermal problem independently at every wavelength.
+
+3. Common solution structure
+----------------------------
+Both modes should return the same general structure:
+
+    solution.mode
+    solution.opticalBasis
+    solution.boundaryBasis
+    solution.spectralWeights
+    solution.nodes
+    solution.lambda
+    solution.timeDomain
+    solution.info
+
+CW:
+    opticalBasis  -> Nr x 1
+    boundaryBasis -> Nr x 1
+    timeDomain    -> []
+
+Transient:
+    opticalBasis  -> Nr x Nt
+    boundaryBasis -> Nr x Nt
+    timeDomain    -> 1 x Nt
+
+4. Transient optimization
+-------------------------
+Since F_d is constant during the simulation:
+
+    dFd = decomposition(F_d);
+
+must be calculated once and reused at every timestep.
+
+Solve optical and boundary RHS simultaneously:
+
+    RHS = [rhs_optical, rhs_boundary];
+    X   = dFd\RHS;
+
+5. Factorized transient source
+------------------------------
+Separate:
+
+    Q(r,t) = Q_spatial(r) * Q_temporal(t)
+
+Evaluate the illumination function once over the time grid.
+
+Do not build a full Nr x Nt source matrix unless explicitly needed.
+
+6. Memory-efficient spectral solution
+-------------------------------------
+Do not automatically construct the full:
+
+    T(r,t,lambda)
+
+cube.
+
+Store:
+
+    opticalBasis
+    boundaryBasis
+    spectralWeights
+
+and reconstruct only requested cuts.
+
+7. Validation / debugging tools
+-------------------------------
+Develop checkers before releasing v1.1.0, including:
+
+- CW versus long-time transient comparison.
+- Error versus simulation duration.
+- Temporal discretization convergence.
+- Spatial mesh convergence.
+- Check reconstruction from opticalBasis + boundaryBasis.
+- Check that wavelength sampling only affects the result through sigma_abs.
+- Matrix/source dimension checks.
+- Timing diagnostics.
+- Condition-number diagnostics where useful.
+
+Core validation:
+
+    tau2 = Inf
+
+must satisfy:
+
+    T_transient(t -> infinity) -> T_CW
+
+Useful metric:
+
+    error(t_max) =
+        max_lambda(
+            |Tmax_transient(lambda,t_max)-Tmax_CW(lambda)|
+            / |Tmax_CW(lambda)|
+        )
+
+8. Optional / experimental target: time-dependent BCs
+-----------------------------------------------------
+Investigate transient boundary conditions with explicit time dependence.
+
+Generalize from constant:
+
+    Q_boundary
+
+to:
+
+    Q_boundary(r,t) =
+        B_spatial(r) * B_temporal(t)
+
+This could support, for example:
+
+    T_inf = T_inf(t)
+
+Potential API:
+
+    bc.T_inf = constant
+
+or:
+
+    bc.T_inf = @(t) ...
+
+Transient update:
+
+    rhs_boundary =
+        F_a*T_boundary(:,n)
+        + B_spatial*B_vals(n);
+
+Include this in v1.1.0 only if it can be implemented cleanly. If it requires a
+substantial redesign, move it to a later release.
+
+
+VERSION 1.2.0 — PRECONDITIONING + DISPERSIVE ENVIRONMENT
+========================================================
+
+Main goal
+---------
+Improve numerical robustness and optical realism before moving to multilayer
+particles.
+
+1. Optional inverse-based preconditioner
+----------------------------------------
+Reintroduce the previous inverse-based preconditioner as an optional feature.
+
+Concept:
+
+    M ≈ A^(-1)
+
+or for transient:
+
+    M ≈ F_d^(-1)
+
+Iteratively improve M until a configurable condition-number target is reached,
+for example:
+
+    cond(M*A) <= targetCond
+
+Possible API:
+
+    solver.preconditioner.enabled    = true;
+    solver.preconditioner.targetCond = 1e3;
+
+Build the preconditioner only once for a given matrix.
+
+Then factorize the preconditioned matrix only once:
+
+    A_pre = M*A;
+    dA    = decomposition(A_pre);
+
+or:
+
+    F_pre = M*F_d;
+    dF    = decomposition(F_pre);
+
+and reuse that factorization.
+
+Important: the inverse-based preconditioner may significantly reduce sparsity.
+
+2. Preconditioner diagnostics
+-----------------------------
+Track, where useful:
+
+    conditionOriginal
+    conditionPreconditioned
+    preconditionerTime
+    factorizationTime
+    nnzOriginal
+    nnzPreconditioned
+    fillRatio
+
+with:
+
+    fillRatio = nnz(A_pre)/nnz(A)
+
+Compare optional modes such as:
+
+    preconditioner = 'none'
+    preconditioner = 'inverse'
+
+Keep targetCond configurable rather than hard-coded.
+
+3. Wavelength-dependent environment refractive index
+-----------------------------------------------------
+Allow:
+
+    n_medium = n_medium(lambda)
+
+instead of only a wavelength-independent scalar.
+
+For each wavelength evaluate independently:
+
+    n_core(lambda)
+    n_medium(lambda)
+
+before calculating:
+
+    sigma_abs(lambda)
+
+This only modifies the optical calculation. The thermal factorization remains:
+
+    T(lambda) =
+        sigma_abs(lambda) * opticalBasis
+        + boundaryBasis
+
+4. Prepare optical material handling
+------------------------------------
+Prepare the optical interface so properties can later be passed as:
+
+- numeric constants,
+- wavelength-dependent arrays/functions,
+- named materials from a small internal database.
+
+
+AFTER v1.2.0
+============
+
+1. Small optical-material database
+----------------------------------
+Add common materials, initially focusing on:
+
+    Au
+    Ag
+    Pt
+    possibly Al / Cu
+
+and common environments such as:
+
+    water
+    air
+    SiO2
+
+Use wavelength-dependent complex refractive indices / dielectric functions with
+interpolation onto the requested wavelength grid.
+
+Exact version number to be decided later.
+
+2. Recalculate previous paper results
+-------------------------------------
+Use the optimized solver to repeat relevant calculations from the previous
+thermal-confinement paper.
+
+Goals:
+
+- Compare old and new implementations.
+- Check whether previous conclusions remain unchanged.
+- Test sensitivity to conditioning, domain size, boundary conditions and
+  discretization.
+- Use the published calculations as a stress test for the new solver.
+
+3. Parallelization
+------------------
+Because wavelength dependence is factorized, do not prioritize parallelization
+over wavelengths.
+
+Instead parallelize independent physical simulations, e.g.:
+
+- particle radii,
+- ITC values,
+- pulse durations,
+- domain sizes,
+- geometries,
+- material combinations,
+- general parameter sweeps.
+
+Concept:
+
+    parfor iCase = 1:Ncases
+        solution{iCase} = heatEqSolver(...);
+    end
+
+
+FUTURE MAJOR DEVELOPMENT — MULTILAYER / STRATIFIED SPHERES
+==========================================================
+
+After the homogeneous-sphere solver is robust and validated, move to stratified
+spherical particles.
+
+Expected generalization:
+
+    T(r,t,lambda) =
+        sum_j [
+            spectralWeight_j(lambda)
+            * thermalBasis_j(r,t)
+        ]
+        + boundaryBasis(r,t)
+
+Each absorbing layer j will have its own optical absorbed power and thermal
+basis.
+
+Target systems include:
+
+    Fe3O4@Au
+    Fe3O4@SiO2@Au
+    other core-shell / multilayer magnetoplasmonic systems
+
+This will require layer-resolved optical absorption:
+
+    P_abs,j(lambda)
+
+and independent thermal source bases for the absorbing layers.
+
+
+CURRENT RELEASE ORDER
+=====================
+
+v1.1.0
+------
+- Unified CW/transient solver.
+- Common solution structure.
+- Spectral thermal factorization.
+- One-time matrix decomposition.
+- Efficient transient source handling.
+- CW/transient validation.
+- Debugging/checking tools.
+- Investigate time-dependent BCs; include if clean enough.
+
+v1.2.0
+------
+- Optional inverse-based preconditioner.
+- Target condition-number stopping criterion.
+- Conditioning/timing/sparsity diagnostics.
+- Wavelength-dependent refractive index of the environment.
+- Prepare optical material handling for a later database.
+
+Later v1.x
+----------
+- Small optical-material database.
+- Additional validation/checkers.
+- Recalculation of previous paper simulations.
+- Parallelization of independent parameter sweeps.
+- Further performance/usability improvements.
+
+Future major release
+--------------------
+- General multilayer / stratified spherical solver.
+- Layer-resolved optical absorption.
+- Multiple thermal source bases.
+- Foundation for magnetoplasmonic core-shell systems.
+
+
+KEY DESIGN PRINCIPLE
+====================
+
+Keep the user-facing API simple while preserving physically distinct internal
+assemblers.
+
+Central representation:
+
+    T =
+        spectralWeight * opticalBasis
+        + boundaryBasis
+
+Future multilayer generalization:
+
+    T =
+        sum_j(spectralWeight_j * thermalBasis_j)
+        + boundaryBasis
