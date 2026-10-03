@@ -6,41 +6,118 @@ function solution = heatEqSolver(dom,mat,src,mesh,bc,solver)
 % solver.mode = 'cw'
 % solver.mode = 'transient'
 %
+% Optional inverse-based preconditioning:
+%
+% solver.preconditioner.enabled    = true / false
+% solver.preconditioner.targetCond = 1e3
+% solver.preconditioner.iterMax    = 10
+% solver.preconditioner.timeMax    = 360
+%
+%
 % Common spectral reconstruction:
 %
 %   T(lambda) =
 %       spectralWeights(lambda) * opticalBasis
 %       + boundaryBasis
 %
+%
 % CW:
+%
 %   opticalBasis  -> N_r x 1
 %   boundaryBasis -> N_r x 1
 %
+%
 % TRANSIENT:
+%
 %   opticalBasis  -> N_r x N_t
 %   boundaryBasis -> N_r x N_t
 %
 % ============================================================
 
+
 total_ref = tic;
 
-% ============================================================
+
+%% ============================================================
 % CHECK SOLVER MODE
 % ============================================================
 
 if ~isfield(solver,'mode')
-    error('solver.mode must be defined as ''cw'' or ''transient''.');
+
+    error( ...
+        'solver.mode must be defined as ''cw'' or ''transient''.');
+
 end
+
 
 mode = lower(solver.mode);
 
+
 if ~ismember(mode,{'cw','transient'})
-    error('Unknown solver mode "%s". Use ''cw'' or ''transient''.', ...
+
+    error( ...
+        'Unknown solver mode "%s". Use ''cw'' or ''transient''.', ...
         solver.mode);
+
 end
 
 
+%% ============================================================
+% PRECONDITIONER OPTIONS
 % ============================================================
+
+% Default: no preconditioning
+usePreconditioner = false;
+
+
+% Default preconditioner parameters
+target_cond = 1e3;
+iter_max    = 10;
+time_max    = 360;
+
+
+% Read user-defined options
+if isfield(solver,'preconditioner')
+
+    if isfield(solver.preconditioner,'enabled')
+
+        usePreconditioner = ...
+            solver.preconditioner.enabled;
+
+    end
+
+
+    if isfield(solver.preconditioner,'targetCond')
+
+        target_cond = ...
+            solver.preconditioner.targetCond;
+
+    end
+
+
+    if isfield(solver.preconditioner,'iterMax')
+
+        iter_max = ...
+            solver.preconditioner.iterMax;
+
+    end
+
+
+    if isfield(solver.preconditioner,'timeMax')
+
+        time_max = ...
+            solver.preconditioner.timeMax;
+
+    end
+
+end
+
+
+% Initialize preconditioner information
+info_pre = [];
+
+
+%% ============================================================
 % COMMON PARAMETERS
 % ============================================================
 
@@ -48,9 +125,11 @@ end
 a     = dom.a;
 R_sim = dom.R_sim;
 
+
 % Optical properties
 n_core   = mat.n_core;
 n_medium = mat.n_medium;
+
 
 % Thermal properties
 rho = mat.rho;
@@ -59,56 +138,78 @@ k   = mat.k;
 
 ITC = mat.ITC;
 
+
 % Source
 lambda     = src.lda0;
 irradiance = src.F;
+
 
 % Boundary conditions
 boundary = bc.bound;
 T_ini    = bc.T_ini;
 
 
+%% ============================================================
+% OPTICAL CALCULATION
+%
+% Independent of the thermal calculation.
 % ============================================================
-% OPTICAL CALCULATION (independent of thermal calculation).
-% =============================================================
 
 optical_ref = tic;
+
+
 nLambda = numel(lambda);
+
 sigma = zeros(1,nLambda);
+
+
 for i = 1:nLambda
+
     [~,sigma(i)] = mie_absorption( ...
         a, ...
         n_core, ...
         n_medium, ...
         lambda(i));
+
 end
+
+
 optical_time = toc(optical_ref);
 
-% ============================================================
+
+%% ============================================================
 % THERMAL SOLVER
 % ============================================================
 
 thermal_ref = tic;
+
+
 switch mode
-    % ========================================================
+
+
+    %% ========================================================
     % CONTINUOUS WAVE
     % =========================================================
+
     case 'cw'
+
+
+        %% ----------------------------------------------------
+        % Spatial discretization
+        % -----------------------------------------------------
+
         N = [ ...
             mesh.N_p, ...
-            mesh.N_e ]; % Spatial mesh.
+            mesh.N_e ];
 
-        % ----------------------------------------------------
+
+        %% ----------------------------------------------------
         % Build stationary thermal system
         %
-        % A*T = b
-        %
-        % kernelAssemblerCW returns Q_unit containing:
-        %
-        %   - optical/source contribution
-        %   - lambda-independent boundary contribution
+        %       A*T = b
         %
         % -----------------------------------------------------
+
         [A,Q_unit,nodes] = kernelAssemblerCW( ...
             a, ...
             R_sim, ...
@@ -118,91 +219,201 @@ switch mode
             boundary, ...
             ITC);
 
-        % ----------------------------------------------------
+
+        %% ----------------------------------------------------
         % Separate optical and boundary contributions
         % -----------------------------------------------------
 
         Q_unit = Q_unit(:);
 
+
         % Unit volumetric heating contribution
         b_optical = Q_unit;
+
         b_optical(end) = 0;
 
+
         % Boundary contribution
-        b_boundary = zeros(size(Q_unit));
-        b_boundary(end) = Q_unit(end);
+        b_boundary = ...
+            zeros(size(Q_unit));
+
+        b_boundary(end) = ...
+            Q_unit(end);
 
 
-        % ----------------------------------------------------
-        % The optical basis includes the illumination amplitude.
+        %% ----------------------------------------------------
+        % Include illumination amplitude
         %
-        % Complete physical heating:
+        % Physical heating:
         %
-        %   sigma(lambda) * irradiance
+        %       P_abs(lambda) =
+        %           sigma_abs(lambda) * irradiance
         %
-        % Therefore:
-        %
-        %   spectralWeights = sigma(lambda)
-        %
-        % and irradiance is included in opticalBasis.
+        % sigma_abs(lambda) remains outside the thermal basis.
         % -----------------------------------------------------
 
-        b_optical = irradiance * b_optical;
+        b_optical = ...
+            irradiance * b_optical;
 
 
-        % ----------------------------------------------------
-        % Solve both RHS simultaneously
-        %
-        % A is factorized only once internally.
+        %% ----------------------------------------------------
+        % Combined RHS
         % -----------------------------------------------------
 
-        X = A \ [b_optical,b_boundary];
+        RHS = [ ...
+            b_optical, ...
+            b_boundary ];
 
-        T_optical  = X(:,1);
-        T_boundary = X(:,2);
+
+        %% ----------------------------------------------------
+        % Linear solution
+        % -----------------------------------------------------
+
+        if usePreconditioner
 
 
-        % ----------------------------------------------------
+            % ==================================================
+            % BUILD APPROXIMATE INVERSE
+            %
+            %       M ~= A^(-1)
+            %
+            % ==================================================
+
+            [M,info_pre] = preconditioner( ...
+                A, ...
+                target_cond, ...
+                iter_max, ...
+                time_max);
+
+
+            % If the construction was interrupted by the time
+            % limit, fall back to the original system.
+            if info_pre.time_limit_reached
+
+                warning( ...
+                    ['Preconditioner construction was interrupted. ' ...
+                     'Falling back to the unpreconditioned CW system.']);
+
+
+                dA = decomposition(A);
+
+                X = dA\RHS;
+
+
+            else
+
+
+                % ==============================================
+                % LEFT-PRECONDITIONED SYSTEM
+                %
+                %       M*A*T = M*b
+                %
+                % ==============================================
+
+                A_pre = ...
+                    M*A;
+
+
+                % Factorize preconditioned matrix once
+                dA = ...
+                    decomposition(A_pre);
+
+
+                % Solve both RHS simultaneously
+                X = ...
+                    dA\(M*RHS);
+
+            end
+
+
+        else
+
+
+            % ==================================================
+            % STANDARD DIRECT SOLUTION
+            % ==================================================
+
+            dA = decomposition(A);
+
+            X = dA\RHS;
+
+        end
+
+
+        %% ----------------------------------------------------
+        % Thermal bases
+        % -----------------------------------------------------
+
+        T_optical = ...
+            X(:,1);
+
+        T_boundary = ...
+            X(:,2);
+
+
+        %% ----------------------------------------------------
         % Output
         % -----------------------------------------------------
 
-        solution.opticalBasis  = T_optical;
-        solution.boundaryBasis = T_boundary;
+        solution.opticalBasis = ...
+            T_optical;
+
+        solution.boundaryBasis = ...
+            T_boundary;
+
 
         % CW has no temporal domain
         solution.timeDomain = [];
 
 
-    % ========================================================
+    %% ========================================================
     % TRANSIENT
     % =========================================================
 
     case 'transient'
 
-        % ----------------------------------------------------
+
+        %% ----------------------------------------------------
         % Required transient parameters
         % -----------------------------------------------------
 
         if ~isfield(dom,'t_max')
-            error('dom.t_max is required for transient simulations.');
+
+            error( ...
+                'dom.t_max is required for transient simulations.');
+
         end
+
 
         if ~isfield(mesh,'N_t')
-            error('mesh.N_t is required for transient simulations.');
+
+            error( ...
+                'mesh.N_t is required for transient simulations.');
+
         end
+
 
         if ~isfield(src,'tau2')
-            error('src.tau2 is required for transient simulations.');
+
+            error( ...
+                'src.tau2 is required for transient simulations.');
+
         end
 
+
         if ~isfield(mat,'tau1')
-            error('mat.tau1 is required for transient simulations.');
+
+            error( ...
+                'mat.tau1 is required for transient simulations.');
+
         end
+
 
         t_max = dom.t_max;
 
         tau1 = mat.tau1;
         tau2 = src.tau2;
+
 
         N = [ ...
             mesh.N_p, ...
@@ -210,14 +421,10 @@ switch mode
             mesh.N_t ];
 
 
-        % ----------------------------------------------------
+        %% ----------------------------------------------------
         % Temporal illumination profile
         %
-        % IMPORTANT:
-        %
-        % illumination contains NO spectral dependence.
-        %
-        % sigma(lambda) has already been separated above.
+        % No spectral dependence is included here.
         % -----------------------------------------------------
 
         Qfunc = illumination( ...
@@ -226,12 +433,13 @@ switch mode
             tau2);
 
 
-        % ----------------------------------------------------
+        %% ----------------------------------------------------
         % Build Crank-Nicolson system
         % -----------------------------------------------------
 
-        [F_d,F_a, Q_vals,Q_spatial,Q_boundary, nodes,t] =...
-            kernelAssembler( ...
+        [F_d,F_a, ...
+         Q_vals,Q_spatial,Q_boundary, ...
+         nodes,t] = kernelAssembler( ...
             a, ...
             R_sim, ...
             t_max, ...
@@ -245,49 +453,139 @@ switch mode
             ITC);
 
 
-        % ----------------------------------------------------
-        % Factorize F_d ONCE
+        %% ----------------------------------------------------
+        % PREPARE LINEAR SOLVER
         %
-        % This decomposition is reused at every timestep.
+        % F_d is constant during the complete simulation.
+        %
+        % Therefore both the preconditioner and matrix
+        % decomposition are calculated only once.
         % -----------------------------------------------------
 
-        dFd = decomposition(F_d);
+        if usePreconditioner
 
 
-        % ----------------------------------------------------
+            % ==================================================
+            % BUILD APPROXIMATE INVERSE
+            %
+            %       M ~= F_d^(-1)
+            %
+            % ==================================================
+
+            [M,info_pre] = preconditioner( ...
+                F_d, ...
+                target_cond, ...
+                iter_max, ...
+                time_max);
+
+
+            % If preconditioner construction was interrupted,
+            % use the original system.
+            if info_pre.time_limit_reached
+
+                warning( ...
+                    ['Preconditioner construction was interrupted. ' ...
+                     'Falling back to the unpreconditioned transient system.']);
+
+
+                M = [];
+
+                dFd = ...
+                    decomposition(F_d);
+
+
+                preconditionerActive = false;
+
+
+            else
+
+
+                % ==============================================
+                % LEFT-PRECONDITIONED SYSTEM
+                %
+                %       M*F_d*T(n+1) = M*RHS
+                %
+                % ==============================================
+
+                Fd_pre = ...
+                    M*F_d;
+
+
+                % Factorize only once
+                dFd = ...
+                    decomposition(Fd_pre);
+
+
+                preconditionerActive = true;
+
+            end
+
+
+        else
+
+
+            % ==================================================
+            % STANDARD FACTORIZATION
+            % ==================================================
+
+            M = [];
+
+            dFd = ...
+                decomposition(F_d);
+
+
+            preconditionerActive = false;
+
+        end
+
+
+        %% ----------------------------------------------------
         % Allocate thermal bases
         % -----------------------------------------------------
 
         Nr = length(nodes);
         Nt = length(t);
 
-        T_optical  = zeros(Nr,Nt);
-        T_boundary = zeros(Nr,Nt);
+
+        T_optical = ...
+            zeros(Nr,Nt);
+
+        T_boundary = ...
+            zeros(Nr,Nt);
 
 
-        % ----------------------------------------------------
+        %% ----------------------------------------------------
         % Initial condition
         %
-        % Initial temperature is lambda-independent, therefore
-        % it belongs to boundary/background basis.
+        % The initial temperature is wavelength-independent
+        % and therefore belongs to the boundary basis.
         % -----------------------------------------------------
 
-        T_boundary(:,1) = T_ini;
+        T_boundary(:,1) = ...
+            T_ini;
 
 
-        % ----------------------------------------------------
+        %% ----------------------------------------------------
         % Progress bar
         % -----------------------------------------------------
 
         showWaitbar = true;
 
+
         if isfield(solver,'showWaitbar')
-            showWaitbar = solver.showWaitbar;
+
+            showWaitbar = ...
+                solver.showWaitbar;
+
         end
+
 
         if showWaitbar
 
-            h = waitbar(0,'Solving transient heat transfer...');
+            h = waitbar( ...
+                0, ...
+                'Solving transient heat transfer...');
+
 
             updateEvery = max( ...
                 1, ...
@@ -296,57 +594,75 @@ switch mode
         end
 
 
-        % ----------------------------------------------------
+        %% ----------------------------------------------------
         % Crank-Nicolson time evolution
         %
         % Optical basis:
         %
         % F_d*T_o^(n+1) =
+        %
         %       F_a*T_o^n
         %       + Q_spatial*Q_vals(n)
+        %
         %
         % Boundary basis:
         %
         % F_d*T_b^(n+1) =
+        %
         %       F_a*T_b^n
         %       + Q_boundary
         %
-        % Both systems share F_d and are solved simultaneously.
         % -----------------------------------------------------
 
         for n = 1:Nt-1
 
-            % Optical contribution
+
+            %% Optical contribution
 
             rhs_optical = ...
                 F_a*T_optical(:,n) + ...
                 Q_spatial*Q_vals(n);
 
 
-            % Boundary contribution
+            %% Boundary contribution
 
             rhs_boundary = ...
                 F_a*T_boundary(:,n) + ...
                 Q_boundary;
 
 
-            % Solve both RHS simultaneously
+            %% Combined RHS
 
             RHS = [ ...
                 rhs_optical, ...
                 rhs_boundary ];
 
-            X = dFd \ RHS;
+
+            %% Solve both RHS simultaneously
+
+            if preconditionerActive
+
+                X = ...
+                    dFd\(M*RHS);
+
+            else
+
+                X = ...
+                    dFd\RHS;
+
+            end
 
 
-            % Store next timestep
+            %% Store next timestep
 
-            T_optical(:,n+1)  = X(:,1);
+            T_optical(:,n+1) = ...
+                X(:,1);
 
-            T_boundary(:,n+1) = X(:,2);
+            T_boundary(:,n+1) = ...
+                X(:,2);
 
 
-            % Progress
+            %% Progress
 
             if showWaitbar && ...
                     (mod(n,updateEvery)==0 || n==Nt-1)
@@ -360,61 +676,110 @@ switch mode
         end
 
 
+        %% ----------------------------------------------------
+        % Close progress bar
+        % -----------------------------------------------------
+
         if showWaitbar
+
             close(h);
+
         end
 
 
-        % ----------------------------------------------------
+        %% ----------------------------------------------------
         % Output
         % -----------------------------------------------------
 
-        solution.opticalBasis  = T_optical;
-        solution.boundaryBasis = T_boundary;
+        solution.opticalBasis = ...
+            T_optical;
 
-        solution.timeDomain = t;
+        solution.boundaryBasis = ...
+            T_boundary;
+
+        solution.timeDomain = ...
+            t;
+
 
 end
 
 
-% ============================================================
+%% ============================================================
 % COMMON OUTPUT
 % ============================================================
 
-thermal_time = toc(thermal_ref);
-
-solution.spectralWeights = sigma;
-
-solution.lambda = lambda;
-solution.nodes  = nodes;
-
-solution.mode = mode;
+thermal_time = ...
+    toc(thermal_ref);
 
 
-% ============================================================
+solution.spectralWeights = ...
+    sigma;
+
+
+solution.lambda = ...
+    lambda;
+
+solution.nodes = ...
+    nodes;
+
+solution.mode = ...
+    mode;
+
+
+%% ============================================================
 % SOURCE INFORMATION
 % ============================================================
 
-solution.source.irradiance = irradiance;
+solution.source.irradiance = ...
+    irradiance;
+
 
 if strcmp(mode,'transient')
 
-    solution.source.tau1 = tau1;
-    solution.source.tau2 = tau2;
+    solution.source.tau1 = ...
+        tau1;
+
+    solution.source.tau2 = ...
+        tau2;
 
 end
 
 
-% ============================================================
+%% ============================================================
 % COMPUTATIONAL INFORMATION
 % ============================================================
 
-solution.info.opticalTime = optical_time;
-solution.info.thermalTime = thermal_time;
-solution.info.totalTime   = toc(total_ref);
+solution.info.opticalTime = ...
+    optical_time;
+
+solution.info.thermalTime = ...
+    thermal_time;
+
+solution.info.totalTime = ...
+    toc(total_ref);
 
 
+%% ============================================================
+% PRECONDITIONER INFORMATION
 % ============================================================
+
+solution.info.preconditionerRequested = ...
+    usePreconditioner;
+
+
+if usePreconditioner && ~isempty(info_pre)
+
+    solution.info.preconditioner = ...
+        info_pre;
+
+else
+
+    solution.info.preconditioner = [];
+
+end
+
+
+%% ============================================================
 % RECONSTRUCTION
 %
 % For wavelength index iLambda:
