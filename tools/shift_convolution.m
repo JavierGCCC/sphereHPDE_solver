@@ -1,4 +1,7 @@
 function dt = shift_convolution(tau1, tau2, gamma, display)
+if nargin < 4 || isempty(display)
+    display = false;
+end
 b = 1 / tau1;
 a = pi / tau2^2;
 f_raw = @(t) exp(-b * t) .*(erfc(sqrt(a) * (-t + b / (2 * a))));
@@ -10,15 +13,13 @@ f_raw = @(t) exp(-b * t) .*(erfc(sqrt(a) * (-t + b / (2 * a))));
 
     %rescaling. 
     f=@(t) f_raw(t)/f_max;
-    
 
-     % equation for displacement.
+    %equation for displacement.
     target = gamma;
     eq = @(dt) f(-dt) - target;
 
     % rooots (dt > 0)
     dt = fzero(eq, [t_max,10*tau2]);
-    
 
  % ======= Visualization =======
 if display 

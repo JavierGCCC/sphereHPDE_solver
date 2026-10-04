@@ -1,4 +1,5 @@
 function [Qfunc] = illumination( F, tau1, tau2)
+
 lim = tau2/tau1;   %Reduced timescale. 
 E   = F;     %Absorbed power. 
 b   = 1 / tau1;    %Characteristic factor.
