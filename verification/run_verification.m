@@ -14,11 +14,12 @@ fprintf('=============================================\n\n');
 % ============================================================
 % RUN CHECKS
 % ============================================================
-results = cell(1,4);
+results = cell(1,5);
 results{1} = check_transient_to_cw(false);
 results{2} = check_quasistatic_limit(false);
 results{3} = check_cw_analytical_solution(false);
 results{4} = check_linearity(false);
+results{5} = check_preconditioner(false);
 
 % ============================================================
 % SUMMARY

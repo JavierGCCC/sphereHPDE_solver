@@ -1,0 +1,190 @@
+function [r,T,info] = temperatureProfile(solution,varargin)
+
+% TEMPERATUREPROFILE
+% Reconstructs the radial temperature profile from the factorized
+% solution returned by heatEqSolver.
+%
+% The temperature field is reconstructed as:
+%   CW:
+%       T(r,lambda) =
+%           sigma_abs(lambda)*T_optical(r) + T_boundary(r)
+%   Transient:
+%       T(r,t,lambda) =
+%           sigma_abs(lambda)*T_optical(r,t) + T_boundary(r,t)
+%
+% USAGE
+%   CW, single wavelength:
+%       [r,T] = temperatureProfile(solution);
+%
+%   CW, multiple wavelengths:
+%       [r,T] = temperatureProfile( ...
+%           solution, ...
+%           'lambda',532e-9);
+%
+%   Transient:
+%       [r,T] = temperatureProfile( ...
+%           solution, ...
+%           'lambda',532e-9, ...
+%           'time',10e-9);
+%
+%   Optional plot:
+%       [r,T] = temperatureProfile( ...
+%           solution, ...
+%           'lambda',532e-9, ...
+%           'time',10e-9, ...
+%           'plot',true);
+%
+% OUTPUTS
+%
+%   r       Radial coordinate [m].
+%   T       Temperature profile.
+%   info    Structure containing the selected wavelength,
+%           time and corresponding indices.
+%
+% NAME-VALUE OPTIONS
+%
+%   'lambda'    Requested wavelength [m].
+%   'time'      Requested time [s], transient mode only.
+%   'plot'      Plot reconstructed profile. Default: false.
+% ============================================================
+
+% ============================================================
+% INPUT PARSER
+% ============================================================
+
+p = inputParser;
+addParameter(p, 'lambda', []);
+addParameter(p, 'time', []);
+addParameter(p, 'plot', false, @(x) islogical(x) || isnumeric(x));
+parse(p,varargin{:});
+lambdaRequested = p.Results.lambda;
+timeRequested = p.Results.time;
+showPlot = logical(p.Results.plot);
+
+% ============================================================
+% CHECK SOLUTION STRUCTURE
+% ============================================================
+requiredFields = {'nodes', 'lambda', 'spectralWeights', 'opticalBasis', ...
+    'boundaryBasis', 'mode'};
+for i = 1:numel(requiredFields)
+    if ~isfield(solution,requiredFields{i})
+        error('temperatureProfile:MissingField', ...
+            'The solution structure does not contain "%s".', ...
+            requiredFields{i});
+    end
+end
+
+r = solution.nodes(:); %radial coordinate.
+lambdaAvailable = solution.lambda(:); %wavelength selection.
+nLambda = numel(lambdaAvailable);
+
+if isempty(lambdaRequested)
+    if nLambda == 1
+        iLambda = 1;
+    else
+        error( 'temperatureProfile:LambdaRequired', ...
+            ['Multiple wavelengths are available. ' ...
+             'Specify one using ''lambda'',value.']);
+    end
+else
+    if ~isscalar(lambdaRequested)
+        error('temperatureProfile:InvalidLambda', ...
+            'Requested wavelength must be a scalar.');
+    end
+    [~,iLambda] = min( ...
+        abs(lambdaAvailable-lambdaRequested)); %Closest value.
+end
+
+lambdaUsed = lambdaAvailable(iLambda);
+sigma = solution.spectralWeights(iLambda);
+mode = lower(string(solution.mode)); %Solver mode.
+
+if mode == "cw" % CW
+    if ~isempty(timeRequested)
+        warning('temperatureProfile:TimeIgnored', ...
+            'The ''time'' option is ignored for CW solutions.');
+    end
+
+    T = sigma * solution.opticalBasis; %Core contribution.
+    if ~isempty(solution.boundaryBasis)
+        T = T + solution.boundaryBasis; %Boundary contribution.
+    end
+
+    T = T(:);
+    timeUsed = [];
+    iTime = [];
+
+elseif mode == "transient" %Transient
+    %Check time domain.
+    if ~isfield(solution,'timeDomain') || isempty(solution.timeDomain)
+        error('temperatureProfile:MissingTimeDomain', ...
+            ['Transient solution does not contain a valid ' ...
+             'timeDomain field.']);
+    end
+    timeAvailable = solution.timeDomain(:);
+    Nt = numel(timeAvailable);
+
+    if isempty(timeRequested)
+        if Nt == 1
+            iTime = 1;
+        else
+            error('temperatureProfile:TimeRequired', ...
+                ['Transient solutions contain multiple times. ' ...
+                 'Specify one using ''time'',value.']);
+        end
+    else
+        if ~isscalar(timeRequested)
+            error('temperatureProfile:InvalidTime', ...
+                'Requested time must be a scalar.');
+        end
+        [~,iTime] = min(abs(timeAvailable-timeRequested));
+    end
+    timeUsed = timeAvailable(iTime);
+
+    %Reconstruct radial temperature profile. 
+
+    T = sigma*solution.opticalBasis(:,iTime);
+    if ~isempty(solution.boundaryBasis)
+        T = T+solution.boundaryBasis(:,iTime);
+    end
+    T = T(:);
+
+
+else %Otherwise.
+    error('temperatureProfile:UnknownMode', 'Unknown solution mode "%s".', ...
+        solution.mode);
+end
+
+% ============================================================
+% OUTPUT INFORMATION
+% ============================================================
+info = struct();
+info.mode = mode;
+info.lambdaRequested = lambdaRequested;
+info.lambda = lambdaUsed;
+info.lambdaIndex = iLambda;
+info.timeRequested = timeRequested;
+info.time = timeUsed;
+info.timeIndex = iTime;
+
+% ============================================================
+% OPTIONAL PLOT
+% ============================================================
+if showPlot
+    figure( 'Color','w');
+    plot(r*1e9, T, 'LineWidth',2);
+    xlabel('r [nm]');
+    ylabel('\DeltaT [K]');
+    if mode == "cw"
+        title(sprintf( ...
+              'CW temperature profile, \\lambda = %.1f nm', lambdaUsed*1e9));
+    else
+        title(sprintf(['Transient temperature profile, ' ...
+                 '\\lambda = %.1f nm, t = %.3g s'], lambdaUsed*1e9, ...
+                timeUsed));
+    end
+    box on;
+    grid on;
+    set(gca, 'FontSize',14);
+end
+end
