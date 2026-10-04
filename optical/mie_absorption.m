@@ -6,7 +6,7 @@ function [ns, sigma_abs] = mie_absorption(a, nCore, nMedium, lda0)
 % INPUTS:
 %   a        - particle radius [m]
 %   nCore    - complex refractive index (numeric) OR string with material
-%              name ('Au', 'Ag', etc.). See /optical/optical_properties/.
+%              name 'Au'. See /optical/optical_properties/.
 %   nMedium  - refractive index of surrounding medium
 %   lda0     - wavelength [m]
 %
