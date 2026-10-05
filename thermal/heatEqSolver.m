@@ -118,7 +118,7 @@ switch mode
         N = [mesh.N_p, mesh.N_e ]; % Spatial discretization 
       
         % Build stationary thermal system
-        [A,Q_unit,nodes] = kernelAssemblerCW(a, R_sim, N, k, T_ini, ...
+        [A,Q_unit,nodes] = kernelAssemblerCW_ext(a, R_sim, N, k, T_ini, ...
             boundary, ITC);
         
         % Separate optical and boundary contributions
